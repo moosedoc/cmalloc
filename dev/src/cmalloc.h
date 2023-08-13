@@ -46,14 +46,15 @@ extern addr_t mempool_ptr;
 
 #define get_ptr_idx( _tbl, _ptr ) ( _ptr - _tbl )
 
-inline addr_t* offset_addr( addr_t* addr, sz_t sz )
-{
-return (addr_t*)((addr_t)addr + (addr_t)sz);
-}
+#define ceiling_to_nrst( _val, _mult ) \
+    ( ( _val % _mult ) == 0 ? _val : _val + ( _val % _mult ) )
+
+#define offset_addr( _addr, _sz ) \
+    ( (addr_t)_addr + (addr_t)_sz )
 
 inline sz_t blksz( sz_t sz )
 {
-return sz / sizeof( sz_t );
+return ceiling_to_nrst( sz, sizeof( sz_t ) ) / sizeof( sz_t );
 }
 
 inline sz_t bytesz( sz_t sz )
@@ -71,6 +72,13 @@ memset( mempool, 0, sizeof( mempool ) );
 mempool_ptr = 0;
 }
 
+/*
+* Allocate memory of the defined size.
+*
+* NOTE: While the size that is passed in is not a multiple of sz_t,
+*       the size is converted to "blocks", such that sz is a multiple
+*       of sz_t.
+*/
 inline ADDR_RET cmalloc( sz_t sz )
 {
 sz = blksz( sz );
@@ -88,6 +96,9 @@ return (ADDR_RET)&mempool[ mempool_ptr - sz ];
 }
 
 #ifdef _ENBL_DESCRIPTOR
+/*
+* Increase a previously allocated memory pool.
+*/
 inline void incr_cmalloc( addr_t ** base_addr, sz_t sz )
 {
 _uint32 tblptr = get_ptr_idx( memtbl, base_addr );
@@ -108,15 +119,22 @@ mempool_ptr += sz;
 #ifdef _ENBL_DESCRIPTOR
 /*
 * Assumes memory has already been increased.
+*
+* NOTE: Although this library defines memory in blocks, we cannot
+*       assume the corresponding types project-side are aligned.
+*       Need to calculate the actual addresses (not the block addrs)
+*       for which memory is being moved around.
 */
 inline void _cinsert( addr_t** base_addr, sz_t sz, _uint32 idx )
 {
 _uint32 tblptr = get_ptr_idx( memtbl, base_addr );
 _uint32 memptr = get_ptr_idx( mempool, *base_addr );
-sz = blksz( sz );
-memptr += sz * idx;
-memmove( &mempool[ memptr + sz ], &mempool[ memptr ], bytesz( memtbl[ tblptr ].sz - memptr ) );
-memset( &mempool[ memptr ], 0, bytesz( sz ) );
+addr_t * memfrom = (addr_t*)offset_addr( *base_addr, sz * idx );
+addr_t * memto = (addr_t*)offset_addr( memfrom, sz );
+_uint32 mvsz = memtbl[ tblptr ].sz - idx - 1;
+mvsz = blksz( mvsz );
+memmove( memfrom, memto, mvsz );
+memset( memfrom, 0, sz );
 }
 #define cinsert( _addr, idx ) _cinsert( _addr, sizeof( **_addr ), idx )
 #endif /* _ENBL_DESCRIPTOR */
