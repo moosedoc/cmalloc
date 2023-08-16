@@ -9,8 +9,10 @@
 
 #ifdef _ENBL_DESCRIPTOR
 #define ADDR_RET void **
+#define ADDR addr_t**
 #else
 #define ADDR_RET void *
+#define ADDR addr_t*
 #endif
 
 #define arrcnt( _arr ) ( sizeof( _arr ) / *_arr )
@@ -139,4 +141,23 @@ memset( memfrom, 0, sz );
 #define cinsert( _addr, idx ) _cinsert( _addr, sizeof( **_addr ), idx )
 #endif /* _ENBL_DESCRIPTOR */
 
+inline void free( ADDR base_addr )
+{
+#ifdef _ENBL_DESCRIPTOR
+_uint32 tblptr = get_ptr_idx( memtbl, base_addr );
+_uint32 memptr = get_ptr_idx( mempool, *base_addr );
+_uint32 freesz = memtbl[ tblptr ].sz;
+_uint32 mvsz = 0;
+_uint32 tbliter;
+for( tbliter = tblptr + 1; tbliter < memtbl_ptr; 
+     memtbl[ tbliter ].addr = offset_addr( memtbl[ tbliter ].addr, blksz( freesz ) ),
+     mvsz += memtbl[ tbliter++ ].sz );
+mvsz = blksz( mvsz );
+memset( &mempool[ memptr ], 0, bytesz( freesz ) );
+memmove( memtbl[ tblptr ].addr, memtbl[ tblptr + 1 ].addr, mvsz );
+memset( )
+#endif /* _ENBL_DESCRIPTOR */
+}
+
 #endif /* CMALLOC_H */
+ 
