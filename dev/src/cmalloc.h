@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 
 #ifndef CMALLOC_H
 #define CMALLOC_H
@@ -42,7 +43,7 @@ typedef block_t descriptor_t[ sizeof( memory_t ) / sizeof( block_t ) ];
 extern descriptor_t memtbl;
 extern addr_t memtbl_ptr;
 
-extern block_t mempool;
+extern memory_t mempool;
 extern addr_t mempool_ptr;
 
 #define get_ptr_idx( _tbl, _ptr ) ( _ptr - _tbl )
@@ -50,12 +51,9 @@ extern addr_t mempool_ptr;
 #define ceiling_to_nrst( _val, _mult ) \
     ( ( _val % _mult ) == 0 ? _val : _val + ( _val % _mult ) )
 
-#define offset_addr( _addr, _sz ) \
-    ( (addr_t)_addr + (addr_t)_sz )
-
 inline addr_t * offset_addr( addr_t * addr, _sint64 sz )
 {
-return (addr_t*)( (addr_t)addr + sz );
+return (addr_t*)( (_uint64)addr + sz );
 }
 
 inline sz_t blksz( sz_t sz )
