@@ -20,6 +20,7 @@
 
 typedef unsigned int _uint32;
 typedef unsigned long int _uint64;
+typedef signed long int _sint64;
 
 #ifdef __64BIT
 typedef _uint64 addr_t;
@@ -36,12 +37,10 @@ typedef struct
     } block_t;
 
 typedef addr_t memory_t[ POOL_SZ / sizeof( addr_t ) ];
-typedef block_t descriptor_t[ memory_t / sizeof( block_t ) ];
+typedef block_t descriptor_t[ sizeof( memory_t ) / sizeof( block_t ) ];
 
-#ifdef _ENBL_DESCRIPTOR
 extern descriptor_t memtbl;
 extern addr_t memtbl_ptr;
-#endif /* _ENBL_DESCRIPTOR */
 
 extern block_t mempool;
 extern addr_t mempool_ptr;
@@ -53,6 +52,11 @@ extern addr_t mempool_ptr;
 
 #define offset_addr( _addr, _sz ) \
     ( (addr_t)_addr + (addr_t)_sz )
+
+inline addr_t * offset_addr( addr_t * addr, _sint64 sz )
+{
+return (addr_t*)( (addr_t)addr + sz );
+}
 
 inline sz_t blksz( sz_t sz )
 {
@@ -66,13 +70,12 @@ return sz * sizeof( sz_t );
 
 inline void cmalloc_init( void )
 {
-#ifdef _ENBL_DESCRIPTOR
 memset( memtbl, 0, sizeof( memtbl ) );
 memtbl_ptr = 0;
-#endif /* _ENBL_DESCRIPTOR */
 memset( mempool, 0, sizeof( mempool ) );
 mempool_ptr = 0;
 }
+
 
 /*
 * Allocate memory of the defined size.
@@ -84,20 +87,75 @@ mempool_ptr = 0;
 inline ADDR_RET cmalloc( sz_t sz )
 {
 sz = blksz( sz );
-if( !( mempool_ptr + sz < arrcnt( mempool ) ) return (ADDR_RET)NULL;
-
-#ifdef _ENBL_DESCRIPTOR
+if( !( mempool_ptr + sz < arrcnt( mempool ) ) ) return (ADDR_RET)NULL;
 memtbl[ memtbl_ptr ].addr = &mempool[ mempool_ptr ];
 memtbl[ memtbl_ptr ].sz = sz;
 mempool_ptr += sz;
 return (ADDR_RET)&memtbl[ memtbl_ptr++ ].addr;
-#else
-mempool_ptr += sz;
-return (ADDR_RET)&mempool[ mempool_ptr - sz ];
-#endif /* _ENBL_DESCRIPTOR */
 }
 
+
+inline void cfree( ADDR base_addr )
+{
+_uint32 tblptr;
 #ifdef _ENBL_DESCRIPTOR
+tblptr = get_ptr_idx( memtbl, base_addr );
+#else
+for( int i = 0; i < memtbl_ptr; i++ ) {
+    if( memtbl[ i ].addr == base_addr ) {
+        tblptr = i;
+        break;
+    }
+}
+#endif
+
+#ifdef _ENBL_DESCRIPTOR
+_uint32 tbliter;
+_uint32 mvsz = 0;
+addr_t * from, * to;
+for( tbliter = tblptr + 1; tbliter < memtbl_ptr; tbliter++ ) {
+    if( memtbl[ tbliter ].addr != NULL ) {
+        mvsz += memtbl[ tbliter ].sz;
+        memtbl[ tbliter ].addr = offset_addr( memtbl[ tbliter ].addr, bytesz( memtbl[ tblptr ].sz ) );
+        }
+    }
+if( mvsz != 0 ) {
+    to = memtbl[ tblptr ].addr;
+    from = offset_addr( to, bytesz( memtbl[ tblptr ].sz ) );
+    memmove( to, from, bytesz( mvsz ) );
+    }
+#endif /* _ENBL_DESCRIPTOR */
+memset( &memtbl[ tblptr ], 0, sizeof( memtbl[ tblptr ] ) );
+if( tblptr == memtbl_ptr - 1 ) {
+    while( memtbl[ --memtbl_ptr ].addr == NULL );
+    }
+}
+
+
+#ifdef _ENBL_DESCRIPTOR
+inline void cfree_sz( ADDR base_addr, sz_t sz )
+{
+_uint32 tblptr = get_ptr_idx( memtbl, base_addr );
+_uint32 mvsz = 0;
+_uint32 tbliter;
+addr_t * from, * to;
+sz = blksz( sz );
+for( tbliter = tblptr + 1; tbliter < memtbl_ptr; tbliter++ ) {
+    if( memtbl[ tbliter ].addr != NULL ) {
+        mvsz += memtbl[ tbliter ].sz;
+        memtbl[ tbliter ].addr = offset_addr( memtbl[ tbliter ].addr, -bytesz( sz ) );
+        }
+    }
+if( mvsz != 0 ) {
+    from = offset_addr( memtbl[ tblptr ].addr, bytesz( memtbl[ tblptr ].sz ) );
+    to = offset_addr( from, -bytesz( sz ) );
+    memset( to, 0, bytesz( sz ) );
+    memmove( to, from, bytesz( mvsz ) );
+    memset( offset_addr( memtbl[ memtbl_ptr - 1 ].addr, bytesz( sz ) ), 0, bytesz( memtbl[ memtbl_ptr ].sz ) );
+    }
+}
+
+
 /*
 * Increase a previously allocated memory pool.
 */
@@ -116,9 +174,8 @@ memmove( mempool[ memptr ], mempool[ memptr - sz ] , bytesz( mvsz ) );
 memset( mempool[ memptr - sz ], 0, bytesz( sz ) );
 mempool_ptr += sz;
 }
-#endif /* _ENBL_DESCRIPTOR */
 
-#ifdef _ENBL_DESCRIPTOR
+
 /*
 * Assumes memory has already been increased.
 *
@@ -140,24 +197,6 @@ memset( memfrom, 0, sz );
 }
 #define cinsert( _addr, idx ) _cinsert( _addr, sizeof( **_addr ), idx )
 #endif /* _ENBL_DESCRIPTOR */
-
-inline void free( ADDR base_addr )
-{
-#ifdef _ENBL_DESCRIPTOR
-_uint32 tblptr = get_ptr_idx( memtbl, base_addr );
-_uint32 memptr = get_ptr_idx( mempool, *base_addr );
-_uint32 freesz = memtbl[ tblptr ].sz;
-_uint32 mvsz = 0;
-_uint32 tbliter;
-for( tbliter = tblptr + 1; tbliter < memtbl_ptr; 
-     memtbl[ tbliter ].addr = offset_addr( memtbl[ tbliter ].addr, blksz( freesz ) ),
-     mvsz += memtbl[ tbliter++ ].sz );
-mvsz = blksz( mvsz );
-memset( &mempool[ memptr ], 0, bytesz( freesz ) );
-memmove( memtbl[ tblptr ].addr, memtbl[ tblptr + 1 ].addr, mvsz );
-memset( )
-#endif /* _ENBL_DESCRIPTOR */
-}
 
 #endif /* CMALLOC_H */
  
